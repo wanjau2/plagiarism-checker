@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plagiarism Detector</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .progress-container {
+            display: none;
+        }
+        #results-container {
+            display: none;
+        }
+        .similar-passage {
+            background-color: #f8f9fa;
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .percentage-high {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .percentage-medium {
+            color: #fd7e14;
+            font-weight: bold;
+        }
+        .percentage-low {
+            color: #198754;
+            font-weight: bold;
+        }
+        .similarity-meter {
+            height: 20px;
+            border-radius: 10px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <h3 class="mb-0">Plagiarism Detection System</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="upload-container">
+                            <p class="lead">Upload a document to check for plagiarism</p>
+                            <form id="upload-form" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="file" class="form-label">Select Document (DOC, DOCX, TXT)</label>
+                                    <input class="form-control" type="file" id="file" name="file" accept=".doc,.docx,.txt">
+                                    <div class="form-text">Maximum file size: 16MB</div>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary">Check for Plagiarism</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="progress-container my-5">
+                            <p class="lead text-center mb-3">Analyzing document for plagiarism...</p>
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <div class="text-center mt-3 progress-text">Uploading document...</div>
+                        </div>
+
+                        <div id="results-container">
+                            <h4 class="mb-4">Plagiarism Detection Results</h4>
+                            
+                            <div class="mb-4">
+                                <h5>Overall Similarity Score</h5>
+                                <div class="d-flex align-items-center">
+                                    <div id="overall-similarity-percentage" class="display-5 me-3">0%</div>
+                                    <div class="flex-grow-1">
+                                        <div class="progress similarity-meter">
+                                            <div id="overall-similarity-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="similarity-interpretation" class="alert alert-success">No significant plagiarism detected.</div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5>Detailed Results</h5>
+                                    <a id="download-pdf" href="#" class="btn btn-sm btn-outline-primary">Download PDF Report</a>
+                                </div>
+                                <div id="phrases-results" class="mt-3">
+                                    <!-- Results will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('upload-form');
+            const uploadContainer = document.getElementById('upload-container');
+            const progressContainer = document.querySelector('.progress-container');
+            const progressBar = document.querySelector('.progress-bar');
+            const progressText = document.querySelector('.progress-text');
+            const resultsContainer = document.getElementById('results-container');
+            const phrasesResults = document.getElementById('phrases-results');
+            const overallSimilarityPercentage = document.getElementById('overall-similarity-percentage');
+            const overallSimilarityBar = document.getElementById('overall-similarity-bar');
+            const similarityInterpretation = document.getElementById('similarity-interpretation');
+            const downloadPdfBtn = document.getElementById('download-pdf');
+            
+            let resultId = null;
+            let fileName = null;
+            
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const fileInput = document.getElementById('file');
+                if (!fileInput.files[0]) {
+                    alert('Please select a file first');
+                    return;
+                }
+                
+                // Create FormData
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                // Show progress
+                uploadContainer.style.display = 'none';
+                progressContainer.style.display = 'block';
+                progressBar.style.width = '10%';
+                
+                try {
+                    // Upload file
+                    progressText.textContent = 'Uploading document...';
+                    const uploadResponse = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const uploadData = await uploadResponse.json();
+                    if (!uploadResponse.ok) {
+                        throw new Error(uploadData.error || 'Error uploading file');
+                    }
+                    
+                    resultId = uploadData.result_id;
+                    fileName = uploadData.filename;
+                    
+                    // Update progress
+                    progressBar.style.width = '40%';
+                    progressText.textContent = 'Extracting text and searching for similar content...';
+                    
+                    // Process file for plagiarism
+                    const checkResponse = await fetch('/check_plagiarism', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            result_id: resultId,
+                            filename: fileName
+                        })
+                    });
+                    
+                    const resultsData = await checkResponse.json();
+                    if (!checkResponse.ok) {
+                        throw new Error(resultsData.error || 'Error checking plagiarism');
+                    }
+                    
+                    // Update progress
+                    progressBar.style.width = '100%';
+                    progressText.textContent = 'Analysis complete!';
+                    
+                    // Display results
+                    setTimeout(() => {
+                        displayResults(resultsData.results);
+                        downloadPdfBtn.href = resultsData.pdf_url;
+                        progressContainer.style.display = 'none';
+                        resultsContainer.style.display = 'block';
+                    }, 500);
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Error: ' + error.message);
+                    uploadContainer.style.display = 'block';
+                    progressContainer.style.display = 'none';
+                }
+            });
+            
+            function displayResults(results) {
+                // Display overall similarity
+                const similarityPercentage = results.overall_similarity * 100;
+                overallSimilarityPercentage.textContent = `${similarityPercentage.toFixed(1)}%`;
+                overallSimilarityBar.style.width = `${similarityPercentage}%`;
+                
+                // Set color based on similarity level
+                if (similarityPercentage > 70) {
+                    overallSimilarityBar.className = 'progress-bar bg-danger';
+                    similarityInterpretation.className = 'alert alert-danger';
+                    similarityInterpretation.textContent = 'High level of similarity detected. This content may be heavily plagiarized.';
+                } else if (similarityPercentage > 40) {
+                    overallSimilarityBar.className = 'progress-bar bg-warning';
+                    similarityInterpretation.className = 'alert alert-warning';
+                    similarityInterpretation.textContent = 'Moderate level of similarity detected. Some content may be borrowed from other sources.';
+                } else {
+                    overallSimilarityBar.className = 'progress-bar bg-success';
+                    similarityInterpretation.className = 'alert alert-success';
+                    similarityInterpretation.textContent = 'Low level of similarity detected. This content appears to be mostly original.';
+                }
+                
+                // Clear previous results
+                phrasesResults.innerHTML = '';
+                
+                // Display phrase results
+                results.phrase_results.forEach(phraseResult => {
+                    const phraseCard = document.createElement('div');
+                    phraseCard.className = 'card mb-4';
+                    
+                    const phraseHeader = document.createElement('div');
+                    phraseHeader.className = 'card-header';
+                    phraseHeader.innerHTML = `<strong>Phrase:</strong> "${phraseResult.phrase}"`;
+                    
+                    const phraseBody = document.createElement('div');
+                    phraseBody.className = 'card-body';
+                    
+                    if (phraseResult.url_results.length === 0) {
+                        phraseBody.innerHTML = '<div class="alert alert-info">No similar content found for this phrase.</div>';
+                    } else {
+                        const urlList = document.createElement('div');
+                        urlList.className = 'list-group';
+                        
+                        phraseResult.url_results.forEach(urlResult => {
+                            const urlItem = document.createElement('div');
+                            urlItem.className = 'list-group-item';
+                            
+                            // Format similarity percentage with color coding
+                            const simPercent = urlResult.similarity * 100;
+                            let percentageClass = 'percentage-low';
+                            if (simPercent > 70) {
+                                percentageClass = 'percentage-high';
+                            } else if (simPercent > 40) {
+                                percentageClass = 'percentage-medium';
+                            }
+                            
+                            // Create URL heading
+                            const urlHeading = document.createElement('div');
+                            urlHeading.className = 'd-flex justify-content-between align-items-center mb-2';
+                            urlHeading.innerHTML = `
+                                <a href="${urlResult.url}" target="_blank" class="text-truncate me-2">${urlResult.url}</a>
+                                <span class="${percentageClass}">${simPercent.toFixed(1)}% similar</span>
+                            `;
+                            urlItem.appendChild(urlHeading);
+                            
+                            // Add similar passages if available
+                            if (urlResult.similar_passages && urlResult.similar_passages.length > 0) {
+                                const passages = document.createElement('div');
+                                passages.className = 'mt-3';
+                                
+                                // Show only top 3 similar passages
+                                urlResult.similar_passages.slice(0, 3).forEach(passage => {
+                                    const passageDiv = document.createElement('div');
+                                    passageDiv.className = 'similar-passage';
+                                    passageDiv.innerHTML = `
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <small class="text-muted">Your content:</small>
+                                                <p class="mb-1">${passage.original}</p>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <small class="text-muted">Similar content:</small>
+                                                <p class="mb-1">${passage.scraped}</p>
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <small class="${percentageClass}">${(passage.similarity * 100).toFixed(1)}% match</small>
+                                        </div>
+                                    `;
+                                    passages.appendChild(passageDiv);
+                                });
+                                
+                                // Add "View More" link if there are more than 3 passages
+                                if (urlResult.similar_passages.length > 3) {
+                                    const viewMoreLink = document.createElement('div');
+                                    viewMoreLink.className = 'text-center mt-2';
+                                    viewMoreLink.innerHTML = `<a href="#" class="text-decoration-none">View ${urlResult.similar_passages.length - 3} more similar passages</a>`;
+                                    passages.appendChild(viewMoreLink);
+                                }
+                                
+                                urlItem.appendChild(passages);
+                            } else {
+                                const noPassages = document.createElement('div');
+                                noPassages.className = 'alert alert-info mt-2 mb-0';
+                                noPassages.textContent = 'Overall similarity detected, but no specific matching passages found.';
+                                urlItem.appendChild(noPassages);
+                            }
+                            
+                            urlList.appendChild(urlItem);
+                        });
+                        
+                        phraseBody.appendChild(urlList);
+                    }
+                    
+                    phraseCard.appendChild(phraseHeader);
+                    phraseCard.appendChild(phraseBody);
+                    phrasesResults.appendChild(phraseCard);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
